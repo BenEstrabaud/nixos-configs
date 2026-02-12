@@ -1,0 +1,103 @@
+# Auto-deployed by k3s from /var/lib/rancher/k3s/server/manifests/
+apiVersion: helm.cattle.io/v1
+kind: HelmChart
+metadata:
+  name: kube-prometheus-stack
+  namespace: kube-system
+spec:
+  repo: https://prometheus-community.github.io/helm-charts
+  chart: kube-prometheus-stack
+  targetNamespace: monitoring
+  valuesContent: |-
+    fullnameOverride: prom
+
+    # --- Grafana ---
+    grafana:
+      service:
+        type: NodePort
+        nodePort: 30030
+      persistence:
+        enabled: true
+        size: 1Gi
+      # Default login:  admin / prom-operator
+      # Route queries through Thanos for access to downsampled history
+      additionalDataSources:
+        - name: Thanos
+          type: prometheus
+          url: http://thanos-query.monitoring.svc.cluster.local:9090
+          isDefault: true
+
+    # --- Prometheus + Thanos sidecar ---
+    prometheus:
+      # Expose the sidecar's gRPC so the Thanos querier can reach it
+      thanosService:
+        enabled: true
+      prometheusSpec:
+        # Short local retention — the sidecar ships blocks to the
+        # Thanos object store; the compactor handles long-term.
+        retention: 2d
+        resources:
+          requests:
+            cpu: 250m
+            memory: 512Mi
+          limits:
+            memory: 1Gi
+        storageSpec:
+          volumeClaimTemplate:
+            spec:
+              accessModes: ["ReadWriteOnce"]
+              resources:
+                requests:
+                  storage: 10Gi
+        # Mount the RAID-backed Thanos directory into the pod
+        volumes:
+          - name: thanos-data
+            hostPath:
+              path: /data/thanos
+              type: DirectoryOrCreate
+        # Thanos sidecar: uploads completed TSDB blocks to object store
+        thanos:
+          objectStorageConfig:
+            key: objstore.yml
+            name: thanos-objstore
+          volumeMounts:
+            - name: thanos-data
+              mountPath: /data/thanos
+
+    # --- Alertmanager ---
+    alertmanager:
+      config:
+        global:
+          smtp_from: "alertmanager@nas.example.com"
+          smtp_smarthost: "smtp.example.com:587"
+          smtp_auth_username: "REPLACE-USERNAME"
+          smtp_auth_password: "REPLACE-PASSWORD"
+          smtp_require_tls: true
+        route:
+          receiver: email
+          group_by: ["alertname", "namespace"]
+          group_wait: 30s
+          group_interval: 5m
+          repeat_interval: 4h
+          routes:
+            - receiver: email
+              matchers:
+                - severity=~"warning|critical"
+        receivers:
+          - name: email
+            email_configs:
+              - to: "REPLACE-RECIPIENT@example.com"
+                send_resolved: true
+      alertmanagerSpec:
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            memory: 128Mi
+
+    # --- Node-exporter ---
+    # Collects CPU, memory, disk I/O, network, and hwmon temps
+    # (coretemp for CPU, drivetemp for HDDs — modules loaded by NixOS)
+    nodeExporter:
+      enabled: true

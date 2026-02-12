@@ -1,0 +1,17 @@
+# Created ahead of the HelmCharts so the namespace and Secret
+# exist before the Helm controller reconciles.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: monitoring
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: thanos-objstore
+  namespace: monitoring
+stringData:
+  objstore.yml: |
+    type: FILESYSTEM
+    config:
+      directory: /data/thanos

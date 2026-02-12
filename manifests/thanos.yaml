@@ -1,0 +1,83 @@
+# Auto-deployed by k3s from /var/lib/rancher/k3s/server/manifests/
+#
+# Downsampling tiers (handled automatically by the compactor):
+#   Raw   — kept 30 days
+#   5 min — kept 180 days
+#   1 hr  — kept indefinitely
+apiVersion: helm.cattle.io/v1
+kind: HelmChart
+metadata:
+  name: thanos
+  namespace: kube-system
+spec:
+  repo: https://charts.bitnami.com/bitnami
+  chart: thanos
+  targetNamespace: monitoring
+  valuesContent: |-
+    existingObjstoreSecret: thanos-objstore
+
+    # --- Query: unified endpoint for Grafana ---
+    query:
+      enabled: true
+      # The sidecar in the Prometheus pod (via kube-prometheus-stack)
+      stores:
+        - "prom-thanos-discovery.monitoring.svc.cluster.local:10901"
+      resources:
+        requests:
+          cpu: 100m
+          memory: 128Mi
+        limits:
+          memory: 256Mi
+
+    queryFrontend:
+      enabled: false
+
+    # --- Compactor: downsamples and compacts blocks ---
+    compactor:
+      enabled: true
+      retentionResolutionRaw: 30d
+      retentionResolution5m: 180d
+      retentionResolution1h: 0d   # keep forever
+      persistence:
+        enabled: true
+        size: 5Gi
+      # Mount the shared object store directory on the RAID array
+      extraVolumes:
+        - name: objstore-data
+          hostPath:
+            path: /data/thanos
+            type: DirectoryOrCreate
+      extraVolumeMounts:
+        - name: objstore-data
+          mountPath: /data/thanos
+      resources:
+        requests:
+          cpu: 100m
+          memory: 256Mi
+        limits:
+          memory: 512Mi
+
+    # --- Store Gateway: serves historical blocks to the querier ---
+    storegateway:
+      enabled: true
+      extraVolumes:
+        - name: objstore-data
+          hostPath:
+            path: /data/thanos
+            type: DirectoryOrCreate
+      extraVolumeMounts:
+        - name: objstore-data
+          mountPath: /data/thanos
+      resources:
+        requests:
+          cpu: 100m
+          memory: 256Mi
+        limits:
+          memory: 512Mi
+
+    ruler:
+      enabled: false
+    receive:
+      enabled: false
+    bucketweb:
+      enabled: false

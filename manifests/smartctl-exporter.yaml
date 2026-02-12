@@ -1,0 +1,15 @@
+# Auto-deployed by k3s from /var/lib/rancher/k3s/server/manifests/
+# Runs as a privileged DaemonSet with /dev mounted to read SMART data
+# from all drives (6× SATA + NVMe).
+apiVersion: helm.cattle.io/v1
+kind: HelmChart
+metadata:
+  name: smartctl-exporter
+  namespace: kube-system
+spec:
+  repo: https://prometheus-community.github.io/helm-charts
+  chart: prometheus-smartctl-exporter
+  targetNamespace: monitoring
+  valuesContent: |-
+    serviceMonitor:
+      enabled: true

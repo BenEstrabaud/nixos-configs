@@ -1,0 +1,48 @@
+# Custom PVC capacity alerts (supplements the built-in
+# KubePersistentVolumeFillingUp which only fires at 97%).
+#
+# To ignore specific PVCs, add their names to the regex below
+# (pipe-separated), e.g.:
+#   persistentvolumeclaim!~"some-pvc|another-pvc"
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: pvc-alerts
+  namespace: monitoring
+  labels:
+    release: kube-prometheus-stack # must match Prometheus ruleSelector
+spec:
+  groups:
+    - name: pvc-capacity
+      rules:
+        - alert: PVCUsageWarning
+          expr: |
+            (
+              kubelet_volume_stats_used_bytes{persistentvolumeclaim!~""}
+              / kubelet_volume_stats_capacity_bytes
+            ) > 0.85
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: >-
+              PVC {{ $labels.namespace }}/{{ $labels.persistentvolumeclaim }}
+              is {{ $value | humanizePercentage }} full
+            description: >-
+              Consider expanding the volume or cleaning up unused data.
+
+        - alert: PVCUsageCritical
+          expr: |
+            (
+              kubelet_volume_stats_used_bytes{persistentvolumeclaim!~""}
+              / kubelet_volume_stats_capacity_bytes
+            ) > 0.95
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: >-
+              PVC {{ $labels.namespace }}/{{ $labels.persistentvolumeclaim }}
+              is {{ $value | humanizePercentage }} full
+            description: >-
+              Immediate action required — workloads may fail with write errors.
