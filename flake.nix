@@ -10,5 +10,9 @@
       system = "x86_64-linux";
       modules = [ ./hosts/nas ];
     };
+
+    checks.x86_64-linux.nas =
+      nixpkgs.legacyPackages.x86_64-linux.testers.runNixOSTest
+        (import ./tests/nas.nix);
   };
 }
