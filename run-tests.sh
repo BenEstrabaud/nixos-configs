@@ -2,8 +2,20 @@
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
-TEST_NAME="${1:-nas}"
 NIX_IMAGE="nixos/nix:2.24.12"
+
+# ---------- Argument parsing ----------
+
+TEST_NAME="nas"
+INTERACTIVE=0
+
+for arg in "$@"; do
+    case "$arg" in
+        -i|--interactive) INTERACTIVE=1 ;;
+        -*) echo "Unknown option: $arg" >&2; exit 1 ;;
+        *) TEST_NAME="$arg" ;;
+    esac
+done
 
 # ---------- Helpers ----------
 
@@ -27,9 +39,19 @@ fi
 if [[ -n "$NIX_BIN" ]] && [[ "$(uname -s)" == "Linux" ]]; then
     bold "Running NixOS VM test natively with nix..."
     bold "Test: ${TEST_NAME}"
-    exec "$NIX_BIN" build "${REPO_DIR}#checks.x86_64-linux.${TEST_NAME}" \
-        --extra-experimental-features 'nix-command flakes' \
-        --print-build-logs --no-link
+    if [[ "$INTERACTIVE" -eq 1 ]]; then
+        bold "Mode: interactive"
+        "$NIX_BIN" build "${REPO_DIR}#checks.x86_64-linux.${TEST_NAME}.driver" \
+            --extra-experimental-features 'nix-command flakes' \
+            --option sandbox false \
+            --print-build-logs --out-link "${REPO_DIR}/test-driver"
+        exec "${REPO_DIR}/test-driver/bin/nixos-test-driver" --interactive
+    else
+        exec "$NIX_BIN" build "${REPO_DIR}#checks.x86_64-linux.${TEST_NAME}" \
+            --extra-experimental-features 'nix-command flakes' \
+            --option sandbox false \
+            --print-build-logs --no-link
+    fi
 fi
 
 # 2. Fall back to Docker (macOS, or Linux without nix).
@@ -57,21 +79,43 @@ else
 fi
 echo
 
-docker run --rm -i ${DOCKER_TTY} \
-    --privileged \
-    -v "${REPO_DIR}:/workspace" \
-    -w /workspace \
-    "${NIX_IMAGE}" \
-    sh -c '
-        mkdir -p /etc/nix
-        cat >> /etc/nix/nix.conf <<EOF
+if [[ "$INTERACTIVE" -eq 1 ]]; then
+    bold "Mode: interactive"
+    docker run --rm -i ${DOCKER_TTY} \
+        --privileged \
+        -v "${REPO_DIR}:/workspace" \
+        -w /workspace \
+        "${NIX_IMAGE}" \
+        sh -c '
+            mkdir -p /etc/nix
+            cat >> /etc/nix/nix.conf <<EOF
 experimental-features = nix-command flakes
 sandbox = false
 system-features = kvm nixos-test benchmark big-parallel
 EOF
 
-        echo ">>> Building .#checks.x86_64-linux.'"${TEST_NAME}"'"
-        nix build ".#checks.x86_64-linux.'"${TEST_NAME}"'" --print-build-logs --no-link
-    '
+            echo ">>> Building .#checks.x86_64-linux.'"${TEST_NAME}"'.driver"
+            nix build ".#checks.x86_64-linux.'"${TEST_NAME}"'.driver" \
+                --print-build-logs --out-link /tmp/test-driver
+            exec /tmp/test-driver/bin/nixos-test-driver --interactive
+        '
+else
+    docker run --rm -i ${DOCKER_TTY} \
+        --privileged \
+        -v "${REPO_DIR}:/workspace" \
+        -w /workspace \
+        "${NIX_IMAGE}" \
+        sh -c '
+            mkdir -p /etc/nix
+            cat >> /etc/nix/nix.conf <<EOF
+experimental-features = nix-command flakes
+sandbox = false
+system-features = kvm nixos-test benchmark big-parallel
+EOF
 
-green "Test '${TEST_NAME}' passed."
+            echo ">>> Building .#checks.x86_64-linux.'"${TEST_NAME}"'"
+            nix build ".#checks.x86_64-linux.'"${TEST_NAME}"'" --print-build-logs --no-link
+        '
+
+    green "Test '${TEST_NAME}' passed."
+fi

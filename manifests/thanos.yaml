@@ -12,6 +12,7 @@ metadata:
 spec:
   repo: https://charts.bitnami.com/bitnami
   chart: thanos
+  version: "17.3.1"
   targetNamespace: monitoring
   valuesContent: |-
     existingObjstoreSecret: thanos-objstore

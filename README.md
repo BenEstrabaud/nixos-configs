@@ -1,10 +1,10 @@
 # nixos-config
 
-Single-node NAS running NixOS with k3s and a full monitoring stack
-(Prometheus, Grafana, Thanos, smartctl-exporter).
+This repo assists in the deployment and test of a **declarative** nixOS configuration on a home NAS. Since the config is declarative, the OS can be deployed almost "in one go" with the help of `nixos-install`, apart from a small setup script to run beforehand to configure storage. This means that the entire OS can be re-deployed very quickly and efficiently. A strong test framework is also present to verify that the nixOS configuration works as expected before a "real world" install takes place. Apart from nixOS and some common packages, this config deploys a k3s Kubernetes cluster with some useful components like a Prometheus/Grafana monitoring system, local path provisioner (for local PV/PVCs), CIFS service and more.
 
 ## Hardware
 
+This is the current hardware specs for which this config was built, but it can be installed on other similar configurations too.
 | Component | Detail |
 |---|---|
 | CPU | Intel (x86_64, VT-x) |
@@ -102,10 +102,22 @@ The NixOS VM test (`tests/nas.nix`) validates 12 assertion groups:
 12. PVC allocation + write test on `/data/kubernetes`
 
 The test VM needs internet access to pull container images (k3s, monitoring
-stack). The nix build sandbox blocks outbound network, so the Docker path
-passes `sandbox = false` in nix.conf. The test adds a QEMU SLIRP NIC on a
-dedicated subnet (10.0.10.0/24) for NAT internet access — see `tests/nas.nix`
-for details.
+stack). The nix build sandbox blocks outbound network, so the build passes
+`sandbox = false`. This requires your user to be in the nix `trusted-users`
+list. Edit the custom nix configuration (Determinate Nix replaces `nix.conf` on updates):
+
+```bash
+sudo vim /etc/nix/nix.custom.conf
+```
+
+And add (or update) the `trusted-users` line:
+
+```
+trusted-users = root ben
+```
+
+The test adds a QEMU SLIRP NIC on a dedicated subnet (10.0.10.0/24) for NAT
+internet access — see `tests/nas.nix` for details.
 
 ## Development setup
 
@@ -114,15 +126,18 @@ for details.
 The fastest way to run tests. QEMU uses KVM for hardware-accelerated
 virtualisation, so the test VM runs at near-native speed.
 
-1. [Install nix](https://nixos.org/download/) if you haven't already.
+1. [Install determinate nix](https://docs.determinate.systems/determinate-nix/#getting-started) if you haven't already.
+```
+curl -fsSL https://install.determinate.systems/nix | sh -s -- install
+```
 
 2. Ensure your user can access `/dev/kvm`:
 
    ```
-   ls -l /dev/kvm
+   test -w /dev/kvm && echo "I have access" || echo "Permission denied"
    ```
 
-   If you get "permission denied", add yourself to the `kvm` group:
+   If you get "Permission denied", add yourself to the `kvm` group:
 
    ```
    sudo usermod -aG kvm "$USER"
@@ -138,6 +153,30 @@ virtualisation, so the test VM runs at near-native speed.
 
 No builder VM or special configuration is needed — nix builds and runs
 the NixOS test VM directly on the host.
+
+### Interactive mode
+
+To get a Python REPL where you can start the VM and run commands step-by-step:
+
+```bash
+./run-tests.sh nas --interactive
+```
+
+This builds the `.driver` attribute and launches `nixos-test-driver --interactive`.
+From the REPL you can call `nas.start()`, `nas.succeed(...)`, `nas.shell_interact()`, etc.
+
+### Attaching a debug shell to a running test
+
+The test VM exposes a serial console on a Unix socket. While a test is running
+(interactive or not), connect from another terminal:
+
+```bash
+rlwrap socat - UNIX-CONNECT:/tmp/nas-shell.sock
+```
+
+Press Enter once to get a root shell inside the VM. `rlwrap` adds arrow keys
+and command history. This is useful for inspecting state while the automated
+test is still in progress.
 
 ### Docker (macOS or Linux without nix)
 
