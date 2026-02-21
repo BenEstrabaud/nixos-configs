@@ -73,12 +73,13 @@ This is the current hardware specs for which this config was built, but it can b
 │   ├── thanos.yaml                # Helm chart (long-term metrics)
 │   ├── pvc-alerts.yaml            # PrometheusRule (PVC usage warnings)
 │   ├── smartctl-exporter.yaml     # Helm chart (SMART metrics DaemonSet)
-│   ├── smbmetrics.yaml            # ServiceMonitor for smbmetrics (sidecar injected by operator)
+│   ├── smbmetrics.yaml            # Metrics Service + ServiceMonitor for smbmetrics sidecar
+│   ├── samba-dashboard.yaml       # Grafana dashboard ConfigMap (Samba metrics)
 │   ├── netpol-monitoring.yaml     # NetworkPolicies for the monitoring namespace
 │   ├── netpol-samba.yaml          # NetworkPolicies for the samba namespace
 │   ├── metallb.yaml               # Helm chart (MetalLB load balancer)
 │   ├── samba-ns.yaml              # samba namespace
-│   └── samba-share.yaml           # timemachine PVC + SmbCommonConfig + SmbShare
+│   └── samba-share.yaml           # timemachine PVC + SmbSecurityConfig + SmbCommonConfig + SmbShare
 ├── tests/
 │   └── nas.nix                    # NixOS VM integration test
 └── run-tests.sh                   # Test runner (native nix / Docker fallback)
@@ -97,10 +98,18 @@ This is the current hardware specs for which this config was built, but it can b
 >   generated from `storageShareSize` in `services.nix`.
 >
 > - **`samba-operator.yaml`** — the upstream v0.8 release manifest fetched from GitHub at
->   build time, with the operator container image patched to a [forked version][samba-op-fork]
->   (`ghcr.io/benestrabaud/samba-operator:v0.8-be-0`). The fork fixes a bug where the
->   smbmetrics sidecar probes used port 8080 while the binary defaulted to 9922, causing
->   CrashLoopBackOff. A [pull request][samba-op-pr] has been submitted upstream.
+>   build time, with three patches applied:
+>   1. Operator container image → [forked version][samba-op-fork]
+>      (`ghcr.io/benestrabaud/samba-operator:v0.8-be-0`) that fixes a bug where the
+>      smbmetrics sidecar probes used port 8080 while the binary defaulted to 9922
+>      (CrashLoopBackOff). A [pull request][samba-op-pr] has been submitted upstream.
+>   2. `SAMBA_OP_METRICS_EXPORTER_MODE=enabled` env var — enables the smbmetrics
+>      sidecar injection into samba pods.
+>   3. `SAMBA_OP_SMBD_CONTAINER_IMAGE` and `SAMBA_OP_SMBD_METRICS_CONTAINER_IMAGE` pinned
+>      to `:v0.8`. The samba-in-kubernetes project releases `samba-server` and `samba-metrics`
+>      together, so `:v0.8` of both contains Samba 4.22.6. Using `:latest` risks version skew
+>      (smbd vs smbstatus on different Samba versions), causing smbstatus to misread smbd's tdb
+>      files and report 0 sessions even when clients are connected.
 >
 > [samba-op-fork]: https://github.com/BenEstrabaud/samba-operator/tree/fix-smbmetrics-port
 > [samba-op-pr]: https://github.com/samba-in-kubernetes/samba-operator/pulls
@@ -175,21 +184,7 @@ sambaStoragePassword     = "your-storage-password";
 
 Then rebuild: `nixos-rebuild switch --flake /etc/nixos#nas`
 
-**2. Enable smbmetrics** (set once on the operator Deployment — persists across reconciles):
-
-```bash
-kubectl set env deployment/samba-operator-controller-manager \
-  -n samba-operator-system \
-  SAMBA_OP_METRICS_EXPORTER_MODE=enabled
-```
-
-Then delete the samba pods so the operator reinjects the sidecar on recreation:
-
-```bash
-kubectl delete pods -n samba -l app=samba
-```
-
-**3. Connect from macOS:**
+**2. Connect from macOS:**
 
 ```
 smb://timemachine-samba.local/timemachine   ← auto-discovered via Avahi
@@ -279,7 +274,7 @@ The NixOS VM test (`tests/nas.nix`) validates the following assertion groups:
 4. XFS formatting + mount on `/data`
 5. SSH hardening (key-only, no root login)
 6. User `ben` exists and is in `wheel`
-7. Firewall rules (ports 22, 445, 6443, 30030)
+7. Firewall rules (ports 22, 6443)
 8. k3s starts and node reaches Ready
 9. Manifest symlinks present (monitoring + MetalLB + Samba)
 10. Required packages installed

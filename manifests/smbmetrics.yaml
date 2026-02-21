@@ -13,9 +13,9 @@
 #   so the probes fail → CrashLoopBackOff.  The one-line fix adds:
 #     Args: []string{fmt.Sprintf("--port=%d", portnum)}
 #
-# Additionally, the per-share Service and ServiceMonitor are only auto-created
-# on OpenShift (IsOpenShiftCluster() guard).  On vanilla k8s the ServiceMonitor
-# below must be applied manually.
+# Additionally, the per-share metrics Service and ServiceMonitor are only
+# auto-created on OpenShift (IsOpenShiftCluster() guard in the operator).
+# On vanilla k8s we create both manually (below).
 #
 # To enable (requires the operator fix above to be deployed):
 #   1. kubectl set env deployment/samba-operator-controller-manager \
@@ -26,10 +26,32 @@
 #      (operator only injects the sidecar on pod creation, not update)
 
 ---
+# ---------- Metrics Service (samba namespace) ----------
+# The operator does NOT create a metrics Service on vanilla k8s (only OpenShift).
+# This headless Service selects all samba share pods and exposes the smbmetrics
+# sidecar port (8080) so the ServiceMonitor below can discover them.
+# One Prometheus target is created per samba pod (timemachine, storage, …).
+apiVersion: v1
+kind: Service
+metadata:
+  name: samba-metrics
+  namespace: samba
+  labels:
+    app.kubernetes.io/component: smbmetrics
+    app.kubernetes.io/managed-by: samba-operator
+spec:
+  clusterIP: None   # headless — one Prometheus target per pod
+  selector:
+    app.kubernetes.io/name: samba
+  ports:
+    - name: smbmetrics
+      port: 8080
+      targetPort: 8080
+
+---
 # ---------- ServiceMonitor (monitoring namespace) ----------
-# Matches the ClusterIP Service the operator creates per samba pod when
-# metrics are enabled.  Port name "smbmetrics" and port 8080 are what the
-# operator's buildSmbMetricsContainer() registers.
+# Discovers samba-metrics (above) in the samba namespace and tells Prometheus
+# to scrape the smbmetrics sidecar on port 8080.
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
@@ -43,7 +65,6 @@ spec:
       - samba
   selector:
     matchLabels:
-      # Label set by the operator on the per-share metrics Service
       app.kubernetes.io/component: smbmetrics
   endpoints:
     - port: smbmetrics

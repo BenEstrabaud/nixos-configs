@@ -4,14 +4,24 @@ let
   # ---------- Samba operator manifest ----------
   # The samba-operator has no Helm chart — it ships a single all-in-one manifest.
   # We use the upstream v0.8 manifest as the base (CRDs, RBAC, Namespace, etc.)
-  # and patch the operator container image to our fork which fixes the smbmetrics
-  # --port bug (https://github.com/BenEstrabaud/samba-operator, tag v0.8-be-0).
+  # and apply three patches:
+  #   1. Operator image → forked image that fixes the smbmetrics --port bug
+  #      (https://github.com/BenEstrabaud/samba-operator, tag v0.8-be-0).
+  #   2. Inject SAMBA_OP_METRICS_EXPORTER_MODE=enabled — enables the smbmetrics
+  #      sidecar that exposes Samba stats to Prometheus.
+  #   3. Inject SAMBA_OP_SMBD_CONTAINER_IMAGE and SAMBA_OP_IMAGE_SMBMETRICS pointing
+  #      to the v0.8 tagged images. The samba-in-kubernetes project releases
+  #      samba-server and samba-metrics together, so :v0.8 of both contains the
+  #      same Samba version (4.22.6). Using :latest for either risks version skew
+  #      between smbd and smbstatus, causing smbstatus to misread tdb files and
+  #      report 0 sessions even when clients are connected.
   #
   # pkgs.runCommand is a sandbox-safe derivation: the inner fetchurl is a
   # fixed-output derivation (hash known), so network access is permitted there.
   sambaOperatorManifest = pkgs.runCommand "samba-operator-manifest.yaml" {} ''
     ${pkgs.gnused}/bin/sed \
-      's|quay\.io/samba\.org/samba-operator:v0\.8|ghcr.io/benestrabaud/samba-operator:v0.8-be-0|g' \
+      -e 's|quay\.io/samba\.org/samba-operator:v0\.8|ghcr.io/benestrabaud/samba-operator:v0.8-be-0|g' \
+      -e '/^        envFrom:$/i\        - name: SAMBA_OP_METRICS_EXPORTER_MODE\n          value: "enabled"\n        - name: SAMBA_OP_SMBD_CONTAINER_IMAGE\n          value: "quay.io/samba.org/samba-server:v0.8"\n        - name: SAMBA_OP_SMBD_METRICS_CONTAINER_IMAGE\n          value: "quay.io/samba.org/samba-metrics:v0.8"' \
       ${pkgs.fetchurl {
         url = "https://github.com/samba-in-kubernetes/samba-operator/releases/download/v0.8/samba-operator-v0.8-default.yaml";
         hash = "sha256-f7sU3XfSY4qXCW97wSuWcRaJFQlkYR9mvpSy3yKYTqc=";

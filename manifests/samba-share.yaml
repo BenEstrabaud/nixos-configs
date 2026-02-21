@@ -70,6 +70,7 @@ spec:
       "fruit:veto_appledouble": "no"
       "fruit:wipe_intentionally_left_blank_rfork": "yes"
       "fruit:delete_empty_adfiles": "yes"
+      "smbd profiling level": "count"
 
 ---
 # ---------- Time Machine share ----------

@@ -19,7 +19,9 @@ spec:
       persistence:
         enabled: true
         size: 1Gi
-      # Default login:  admin / prom-operator
+      # Admin password is randomly generated on first deploy (stored in a K8s Secret).
+      # Retrieve with: kubectl get secret kube-prometheus-stack-grafana -n monitoring \
+      #   -o jsonpath='{.data.admin-password}' | base64 -d
       # Route queries through Thanos for access to downsampled history
         # kube-prometheus-stack 82+ init-chown-data drops all caps except CHOWN.
       # Without DAC_OVERRIDE, root can't traverse directories with mode --S---
