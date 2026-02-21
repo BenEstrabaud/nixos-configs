@@ -1,0 +1,101 @@
+# Samba Time Machine share resources.
+# Depends on: samba-ns.yaml (namespace), samba-operator.yaml (CRDs + operator).
+#
+# The operator deploys in the 'samba-operator-system' namespace; user-facing
+# resources (shares, configs, PVCs) live in the 'samba' namespace.
+#
+# User secrets (timemachine-users, storage-users) are generated from Nix
+# variables in hosts/nas/services.nix and deployed automatically.
+# LoadBalancer services are created by the operator (network.publish: external).
+# The samba-avahi-publisher systemd service watches those services and publishes
+# mDNS records dynamically — IPs are assigned by MetalLB from the pool.
+#
+# Connect from macOS:
+#   smb://timemachine-samba.local/timemachine  (auto-discovered via Avahi)
+#   smb://storage-samba.local/storage
+# Then add the timemachine share in System Settings → Time Machine → Add Backup Disk.
+
+# ---------- Storage ----------
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: timemachine
+  namespace: samba
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 2Ti   # Adjust to suit your backup budget
+
+---
+# ---------- Security config (user authentication) ----------
+# Points to the Secret created manually above.
+apiVersion: samba-operator.samba.org/v1alpha1
+kind: SmbSecurityConfig
+metadata:
+  name: samba-security
+  namespace: samba
+spec:
+  mode: user
+  users:
+    secret: timemachine-users
+    key: users.json
+
+---
+# ---------- Global Samba config ----------
+# fruit + catia + streams_xattr VFS modules enable macOS compatibility
+# (AFP-over-SMB emulation, extended attributes, special character translation).
+# customGlobalConfig.configs writes to the [global] section of smb.conf.
+# useUnsafeCustomConfig must be true to allow arbitrary smb.conf keys.
+apiVersion: samba-operator.samba.org/v1alpha1
+kind: SmbCommonConfig
+metadata:
+  name: samba-common
+  namespace: samba
+spec:
+  # publish: "external" makes the operator create LoadBalancer services instead
+  # of ClusterIP — MetalLB assigns IPs dynamically from the pool.
+  # The samba-avahi-publisher systemd service watches these and advertises them
+  # via mDNS so macOS auto-discovers the shares without a hardcoded IP.
+  network:
+    publish: "external"
+  customGlobalConfig:
+    useUnsafeCustomConfig: true
+    configs:
+      "vfs objects": "catia fruit streams_xattr"
+      "fruit:metadata": "stream"
+      "fruit:model": "MacSamba"
+      "fruit:posix_rename": "yes"
+      "fruit:veto_appledouble": "no"
+      "fruit:wipe_intentionally_left_blank_rfork": "yes"
+      "fruit:delete_empty_adfiles": "yes"
+
+---
+# ---------- Time Machine share ----------
+# customShareConfig.useUnsafeCustomConfig must be true to allow per-share
+# smb.conf keys (the operator warns these are unsupported/arbitrary values).
+apiVersion: samba-operator.samba.org/v1alpha1
+kind: SmbShare
+metadata:
+  name: timemachine
+  namespace: samba
+spec:
+  shareName: "timemachine"
+  readOnly: false
+  browseable: true
+  customShareConfig:
+    useUnsafeCustomConfig: true
+    configs:
+      "fruit:time machine": "yes"
+      "fruit:time machine max size": "0"   # 0 = unlimited; set e.g. "1T" to cap
+      "durable handles": "yes"
+      "kernel oplocks": "no"
+      "kernel share modes": "no"
+      "posix locking": "no"
+      "smbd max xattr size": "2097152"
+  storage:
+    pvc:
+      name: timemachine
+  commonConfig: samba-common
+  securityConfig: samba-security

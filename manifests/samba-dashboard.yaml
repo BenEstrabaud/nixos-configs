@@ -1,0 +1,263 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: samba-dashboard
+  namespace: monitoring
+  labels:
+    grafana_dashboard: "1"
+data:
+  samba.json: |
+    {
+      "title": "Samba",
+      "uid": "samba-nas",
+      "tags": ["samba"],
+      "schemaVersion": 38,
+      "version": 1,
+      "refresh": "30s",
+      "time": {"from": "now-1h", "to": "now"},
+      "timezone": "browser",
+      "graphTooltip": 1,
+      "templating": {
+        "list": [
+          {
+            "name": "datasource",
+            "label": "Datasource",
+            "type": "datasource",
+            "query": "prometheus",
+            "hide": 0,
+            "refresh": 1,
+            "multi": false,
+            "includeAll": false
+          },
+          {
+            "name": "share",
+            "label": "Share",
+            "type": "query",
+            "datasource": {"type": "prometheus", "uid": "${datasource}"},
+            "query": {"query": "label_values(smb_metrics_status, netbiosname)", "refId": "StandardVariableQuery"},
+            "definition": "label_values(smb_metrics_status, netbiosname)",
+            "refresh": 2,
+            "sort": 1,
+            "hide": 0,
+            "multi": true,
+            "includeAll": true,
+            "current": {}
+          }
+        ]
+      },
+      "panels": [
+        {
+          "id": 1,
+          "type": "stat",
+          "title": "Active Sessions",
+          "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "targets": [{"expr": "sum(smb_sessions_total)", "instant": true, "refId": "A"}],
+          "options": {
+            "colorMode": "value",
+            "graphMode": "none",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+            "textMode": "auto"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "thresholds"},
+              "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]},
+              "unit": "none"
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 2,
+          "type": "stat",
+          "title": "Active Users",
+          "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "targets": [{"expr": "sum(smb_users_total)", "instant": true, "refId": "A"}],
+          "options": {
+            "colorMode": "value",
+            "graphMode": "none",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+            "textMode": "auto"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "thresholds"},
+              "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]},
+              "unit": "none"
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 3,
+          "type": "stat",
+          "title": "Tree Connections",
+          "gridPos": {"h": 4, "w": 6, "x": 12, "y": 0},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "targets": [{"expr": "sum(smb_tcon_total)", "instant": true, "refId": "A"}],
+          "options": {
+            "colorMode": "value",
+            "graphMode": "none",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+            "textMode": "auto"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "thresholds"},
+              "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]},
+              "unit": "none"
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 4,
+          "type": "stat",
+          "title": "Exporter Status",
+          "gridPos": {"h": 4, "w": 6, "x": 18, "y": 0},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "targets": [{"expr": "sum(smb_metrics_status{netbiosname=~\"$share\"})", "instant": true, "legendFormat": "{{netbiosname}}", "refId": "A"}],
+          "options": {
+            "colorMode": "background",
+            "graphMode": "none",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+            "textMode": "auto"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "thresholds"},
+              "mappings": [
+                {
+                  "type": "value",
+                  "options": {
+                    "0": {"color": "red",   "index": 1, "text": "Down"},
+                    "1": {"color": "green", "index": 0, "text": "Up"}
+                  }
+                }
+              ],
+              "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 1}]}
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 5,
+          "type": "timeseries",
+          "title": "Throughput",
+          "gridPos": {"h": 8, "w": 24, "x": 0, "y": 4},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "targets": [
+            {
+              "expr": "sum by(netbiosname) (rate(smb_smb2_request_outbytes{netbiosname=~\"$share\", operation=\"read\"}[$__rate_interval]))",
+              "legendFormat": "{{netbiosname}} read",
+              "refId": "A"
+            },
+            {
+              "expr": "sum by(netbiosname) (rate(smb_smb2_request_inbytes{netbiosname=~\"$share\", operation=\"write\"}[$__rate_interval]))",
+              "legendFormat": "{{netbiosname}} write",
+              "refId": "B"
+            }
+          ],
+          "options": {
+            "tooltip": {"mode": "multi", "sort": "desc"},
+            "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max", "lastNotNull"]}
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "palette-classic"},
+              "unit": "Bps",
+              "custom": {"lineWidth": 1, "fillOpacity": 10, "showPoints": "never"}
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 6,
+          "type": "timeseries",
+          "title": "SMB2 Request Rate",
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 12},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "targets": [
+            {
+              "expr": "sum by(netbiosname, operation) (rate(smb_smb2_request_total{netbiosname=~\"$share\", operation!=\"keepalive\"}[$__rate_interval]))",
+              "legendFormat": "{{netbiosname}} {{operation}}",
+              "refId": "A"
+            }
+          ],
+          "options": {
+            "tooltip": {"mode": "multi", "sort": "desc"},
+            "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max", "lastNotNull"]}
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "palette-classic"},
+              "unit": "reqps",
+              "custom": {"lineWidth": 1, "fillOpacity": 10, "showPoints": "never"}
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 7,
+          "type": "timeseries",
+          "title": "VFS I/O Operations",
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 12},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "targets": [
+            {
+              "expr": "sum by(netbiosname, operation) (rate(smb_vfs_io_total{netbiosname=~\"$share\"}[$__rate_interval]))",
+              "legendFormat": "{{netbiosname}} {{operation}}",
+              "refId": "A"
+            }
+          ],
+          "options": {
+            "tooltip": {"mode": "multi", "sort": "desc"},
+            "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max", "lastNotNull"]}
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "palette-classic"},
+              "unit": "ops",
+              "custom": {"lineWidth": 1, "fillOpacity": 10, "showPoints": "never"}
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 8,
+          "type": "timeseries",
+          "title": "SMB2 Average Latency (read / write)",
+          "gridPos": {"h": 8, "w": 24, "x": 0, "y": 20},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "targets": [
+            {
+              "expr": "sum by(netbiosname, operation) (rate(smb_smb2_request_duration_microseconds_sum{netbiosname=~\"$share\", operation=~\"read|write|create|close|find|getinfo|setinfo\"}[$__rate_interval])) / sum by(netbiosname, operation) (rate(smb_smb2_request_total{netbiosname=~\"$share\", operation=~\"read|write|create|close|find|getinfo|setinfo\"}[$__rate_interval]))",
+              "legendFormat": "{{netbiosname}} {{operation}}",
+              "refId": "A"
+            }
+          ],
+          "options": {
+            "tooltip": {"mode": "multi", "sort": "desc"},
+            "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max", "lastNotNull"]}
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "palette-classic"},
+              "unit": "µs",
+              "custom": {"lineWidth": 1, "fillOpacity": 10, "showPoints": "never"}
+            },
+            "overrides": []
+          }
+        }
+      ]
+    }

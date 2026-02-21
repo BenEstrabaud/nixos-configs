@@ -15,18 +15,35 @@ spec:
     # --- Grafana ---
     grafana:
       service:
-        type: NodePort
-        nodePort: 30030
+        type: LoadBalancer
       persistence:
         enabled: true
         size: 1Gi
       # Default login:  admin / prom-operator
       # Route queries through Thanos for access to downsampled history
+        # kube-prometheus-stack 82+ init-chown-data drops all caps except CHOWN.
+      # Without DAC_OVERRIDE, root can't traverse directories with mode --S---
+      # (no group/other execute bit). Add it back so chown -R succeeds.
+      initChownData:
+        securityContext:
+          runAsUser: 0
+          capabilities:
+            add: ["CHOWN", "DAC_OVERRIDE"]
+            drop: ["ALL"]
+      # Disable the chart's built-in Prometheus datasource as default so that
+      # Thanos (below) can be the single default without conflicting.
+      sidecar:
+        datasources:
+          defaultDatasourceEnabled: false
       additionalDataSources:
         - name: Thanos
           type: prometheus
           url: http://thanos-query.monitoring.svc.cluster.local:9090
           isDefault: true
+        - name: Prometheus
+          type: prometheus
+          url: http://prometheus-operated.monitoring.svc.cluster.local:9090
+          isDefault: false
 
     # --- Prometheus + Thanos sidecar ---
     prometheus:
@@ -34,6 +51,8 @@ spec:
       thanosService:
         enabled: true
       prometheusSpec:
+        # Watch ServiceMonitors in all namespaces (e.g. smbmetrics in samba ns).
+        serviceMonitorNamespaceSelector: {}
         # Short local retention — the sidecar ships blocks to the
         # Thanos object store; the compactor handles long-term.
         retention: 2d

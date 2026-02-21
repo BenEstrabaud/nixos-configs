@@ -214,7 +214,7 @@ in
 
     nas.wait_for_unit("firewall.service")
     iptables = nas.succeed("iptables -L nixos-fw -n")
-    for port in ["22", "6443", "30030"]:
+    for port in ["22", "6443"]:
         assert port in iptables, f"Port {port} should be open in firewall"
 
     # ========== k3s ==========
@@ -233,6 +233,18 @@ in
         "thanos.yaml",
         "pvc-alerts.yaml",
         "smartctl-exporter.yaml",
+        "netpol-monitoring.yaml",
+        "netpol-samba.yaml",
+        "metallb.yaml",
+        "metallb-config.yaml",
+        "samba-ns.yaml",
+        "samba-operator.yaml",
+        "samba-share.yaml",
+        "timemachine-users-secret.yaml",
+        "storage-users-secret.yaml",
+        "samba-storage.yaml",
+        "smbmetrics.yaml",
+        "samba-dashboard.yaml",
     ]
     for m in manifests:
         path = f"/var/lib/rancher/k3s/server/manifests/{m}"
@@ -242,6 +254,15 @@ in
 
     for cmd in ["vim", "htop", "git", "xfs_repair", "smartctl", "sensors", "curl"]:
         nas.succeed(f"command -v {cmd}")
+
+    # ========== Bash completion ==========
+
+    # bash-completion package must be present (programs.bash.enableCompletion = true)
+    nas.succeed("test -d /run/current-system/sw/share/bash-completion")
+
+    # kubectl alias + completion sourced via interactiveShellInit
+    nas.succeed("bash -i -c 'type kubectl' 2>/dev/null | grep -q alias")
+    nas.succeed("bash -i -c 'complete -p kubectl' 2>/dev/null | grep -q __start_kubectl")
 
     # ========== kube-system pods healthy ==========
 
@@ -276,8 +297,13 @@ in
 
     # ========== Grafana health check ==========
 
+    grafana_ip = nas.wait_until_succeeds(
+        "k3s kubectl get svc -n monitoring kube-prometheus-stack-grafana "
+        "-o jsonpath='{.status.loadBalancer.ingress[0].ip}' | grep -E '[0-9]'",
+        timeout=120,
+    ).strip()
     nas.wait_until_succeeds(
-        "curl -sf http://localhost:30030/api/health",
+        f"curl -sf http://{grafana_ip}/api/health",
         timeout=120,
     )
 

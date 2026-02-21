@@ -1,0 +1,68 @@
+# NetworkPolicies for the samba namespace.
+#
+# The timemachine Samba pod accepts SMB connections from the LAN (via MetalLB)
+# and has no reason to initiate connections to any other pods in the cluster.
+#
+# Note: samba-operator-system namespace is intentionally left without
+# NetworkPolicies — the operator requires broad API-server access to manage
+# SmbShare/SmbSecurityConfig/SmbCommonConfig CRDs across namespaces.
+
+# ---------- Default deny ----------
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: samba
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+
+---
+# ---------- DNS (all pods) ----------
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns-egress
+  namespace: samba
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+
+---
+# ---------- samba pods ----------
+# Covers all samba share pods (timemachine, storage, etc.) — the operator labels
+# them all with app.kubernetes.io/name: samba.
+#
+# Ingress:
+#   port 445 — SMB from LAN clients forwarded by MetalLB
+#   port 8080 — smbmetrics sidecar scraped by Prometheus (operator-injected)
+# No egress to other pods needed — smbd serves files from a local PVC only.
+# The smbmetrics sidecar reads smbd state via shared volumes, not the network.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: samba-pods
+  namespace: samba
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: samba
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - ports:
+        - port: 445
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+      ports:
+        - port: 8080

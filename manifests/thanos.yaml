@@ -15,6 +15,17 @@ spec:
   version: "17.3.1"
   targetNamespace: monitoring
   valuesContent: |-
+    # Bitnami removed their Docker Hub images in 2024 (moved to a paid private
+    # registry). Override to use the official Thanos images from quay.io instead.
+    # allowInsecureImages bypasses Bitnami's image verification check.
+    global:
+      security:
+        allowInsecureImages: true
+    image:
+      registry: quay.io
+      repository: thanos/thanos
+      tag: v0.41.0
+
     existingObjstoreSecret: thanos-objstore
 
     # --- Query: unified endpoint for Grafana ---

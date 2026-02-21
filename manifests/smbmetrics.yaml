@@ -1,0 +1,50 @@
+# smbmetrics — Prometheus exporter for Samba.
+#
+# How it works:
+#   The operator injects smbmetrics as a sidecar into each samba pod when
+#   SAMBA_OP_METRICS_EXPORTER_MODE=enabled is set on the operator Deployment.
+#   The sidecar shares /run and /var/lib/samba volumes with smbd, which gives
+#   smbstatus access to smbd's Unix sockets and tdb state databases.
+#   Metrics are exposed on port 8080.
+#
+# Bug in samba-operator v0.8 (fixed in BenEstrabaud/samba-operator#fix-smbmetrics-port):
+#   buildSmbMetricsContainer() hardcodes liveness/readiness probes on port 8080
+#   but never passes --port 8080 to the binary.  The binary defaults to 9922,
+#   so the probes fail → CrashLoopBackOff.  The one-line fix adds:
+#     Args: []string{fmt.Sprintf("--port=%d", portnum)}
+#
+# Additionally, the per-share Service and ServiceMonitor are only auto-created
+# on OpenShift (IsOpenShiftCluster() guard).  On vanilla k8s the ServiceMonitor
+# below must be applied manually.
+#
+# To enable (requires the operator fix above to be deployed):
+#   1. kubectl set env deployment/samba-operator-controller-manager \
+#        -n samba-operator-system SAMBA_OP_METRICS_EXPORTER_MODE=enabled
+#   2. kubectl apply -f manifests/smbmetrics.yaml
+#   3. Delete the SmbShare pods so the operator recreates them with the sidecar:
+#        kubectl delete pods -n samba -l app=samba
+#      (operator only injects the sidecar on pod creation, not update)
+
+---
+# ---------- ServiceMonitor (monitoring namespace) ----------
+# Matches the ClusterIP Service the operator creates per samba pod when
+# metrics are enabled.  Port name "smbmetrics" and port 8080 are what the
+# operator's buildSmbMetricsContainer() registers.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: smbmetrics
+  namespace: monitoring
+  labels:
+    release: kube-prometheus-stack
+spec:
+  namespaceSelector:
+    matchNames:
+      - samba
+  selector:
+    matchLabels:
+      # Label set by the operator on the per-share metrics Service
+      app.kubernetes.io/component: smbmetrics
+  endpoints:
+    - port: smbmetrics
+      interval: 30s
